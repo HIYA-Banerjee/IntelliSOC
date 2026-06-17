@@ -1,0 +1,20 @@
+======================================================================
+INTELLISOC SECURITY Operations Center - SECURE INCIDENT ADVISORY
+======================================================================
+
+Generated on:      2026-06-16 13:52:34
+Total Incidents:   1
+
+1. EXECUTIVE SUMMARY
+---------------------
+This report aggregates active network compromises and flow violations analyzed by our ML engines.
+
+2. INCIDENTS TIMELINE LOG
+--------------------------
+- [2026-06-16 13:52:34] DDoS (Critical) | Source: 198.51.100.42 -> Confidence: 95%
+
+3. REMEDIATION ACTIONS & PLAYBOOK
+----------------------------------
+[*] DDoS Mitigation:
+    Drop attacker packets using iptables rules.
+

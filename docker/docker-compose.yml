@@ -1,0 +1,159 @@
+version: '3.8'
+
+services:
+  # 1. Apache Zookeeper (required for Kafka coordination)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: soc-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  # 2. Apache Kafka Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: soc-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. FastAPI Backend Service
+  api:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.api
+    container_name: soc-api
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SUPABASE_URL=https://your-supabase-project.supabase.co
+      - SUPABASE_KEY=your-supabase-anon-or-service-role-key
+      - GEMINI_API_KEY=
+      - SIMULATION_MODE=True
+    volumes:
+      - reports_data:/app/reports
+
+  # 4. Streamlit Dashboard Service
+  dashboard:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.dashboard
+    container_name: soc-dashboard
+    depends_on:
+      - api
+    ports:
+      - "8501:8501"
+    environment:
+      - BACKEND_API_URL=http://api:8000
+    restart: always
+
+  # 5. Packet Sniffing / Simulation Agent
+  capture:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.capture
+    container_name: soc-capture
+    depends_on:
+      kafka:
+        condition: service_healthy
+      api:
+        condition: service_started
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SIMULATION_MODE=True
+
+  # 6. Flow Feature Extraction Service
+  extractor:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.api
+    container_name: soc-extractor
+    depends_on:
+      kafka:
+        condition: service_healthy
+      capture:
+        condition: service_started
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    command: ["python", "feature_extraction/extractor.py"]
+    restart: always
+
+  # 7. Threat Detection Service
+  detector:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.api
+    container_name: soc-detector
+    depends_on:
+      kafka:
+        condition: service_healthy
+      extractor:
+        condition: service_started
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    command: ["python", "threat_detection/detector.py"]
+    restart: always
+
+  # 8. Alert & Storage Engine Service
+  alert_engine:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.api
+    container_name: soc-alert-engine
+    depends_on:
+      kafka:
+        condition: service_healthy
+      detector:
+        condition: service_started
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SUPABASE_URL=https://your-supabase-project.supabase.co
+      - SUPABASE_KEY=your-supabase-anon-or-service-role-key
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=alerts@intellisoc.local
+      - SMTP_PASSWORD=yoursecretpassword
+      - SMTP_FROM=soc-alert@intellisoc.local
+      - SMTP_TO=security-analyst@intellisoc.local
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_ID=
+    volumes:
+      - reports_data:/app/reports
+    command: ["python", "alert_engine/alerts.py"]
+    restart: always
+
+  # 9. Nginx Web Entry Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: soc-proxy
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - dashboard
+      - api
+
+volumes:
+  reports_data:

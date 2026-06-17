@@ -1,0 +1,26 @@
+services:
+  # 1. FastAPI Backend Service
+  - type: web
+    name: intellisoc-api
+    env: python
+    buildCommand: pip install -r api/requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SIMULATION_MODE
+        value: "True"
+      - key: SUPABASE_URL
+        value: ""
+      - key: SUPABASE_KEY
+        value: ""
+      - key: GEMINI_API_KEY
+        value: ""
+
+  # 2. Streamlit Dashboard Service
+  - type: web
+    name: intellisoc-dashboard
+    env: python
+    buildCommand: pip install -r dashboard/requirements.txt
+    startCommand: streamlit run dashboard/app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: BACKEND_API_URL
+        value: "https://intellisoc-api.onrender.com" # Replace with your deployed intellisoc-api public Render URL
